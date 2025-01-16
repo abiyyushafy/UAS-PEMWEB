@@ -8,30 +8,17 @@ app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Ganti dengan secret key yang aman
 
 # MySQL Connection Configuration
-hostname = "vlnon.h.filess.io"
-database = "tokoku_weatherat"
-port = "3305"
-username = "tokoku_weatherat"
-password = "a076f5b8f8d9ccba80512b53010a3fe3499575c1"
-
-try:
+def get_db_connection():
+    hostname = "vlnon.h.filess.io"
+    database = "tokoku_weatherat"
+    port = "3305"
+    username = "tokoku_weatherat"
+    password = "a076f5b8f8d9ccba80512b53010a3fe3499575c1"
+    
     connection = mysql.connector.connect(host=hostname, database=database, user=username, password=password, port=port)
-    if connection.is_connected():
-        db_Info = connection.get_server_info()
-        print("Connected to MariaDB Server version ", db_Info)
-        cursor = connection.cursor()
-        cursor.execute("select database();")
-        record = cursor.fetchone()
-        print("You're connected to database: ", record)
+    return connection
 
-except Error as e:
-    print("Error while connecting to MariaDB", e)
-finally:
-    if connection.is_connected():
-        cursor.close()
-        connection.close()
-        print("MariaDB connection is closed")
-
+# Admin Required Decorator
 def admin_required(f):
     """Decorator to restrict access to admin users only."""
     @wraps(f)
@@ -159,7 +146,7 @@ def user_list():
     cursor.execute('SELECT id, username, permission FROM users')
     users = cursor.fetchall()
     conn.close()
-    return render_template('user_list.html', users=users, user=current_user)  # Add user=current_user here
+    return render_template('user_list.html', users=users, user=current_user)
 
 @app.route('/admin/users/delete/<int:user_id>', methods=['POST'])
 @admin_required
@@ -171,24 +158,6 @@ def delete_user(user_id):
     conn.close()
     flash('User deleted successfully!', 'success')
     return redirect(url_for('user_list'))
-
-@app.route('/admin/users/update', methods=['POST'])
-@admin_required
-def update_user():
-    user_id = request.form['user_id']
-    username = request.form['username']
-    permission = int(request.form['permission'])
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('UPDATE users SET username = %s, permission = %s WHERE id = %s', 
-                   (username, permission, user_id))
-    conn.commit()
-    conn.close()
-    flash('User updated successfully!', 'success')
-    return redirect(url_for('user_list'))
-
-
 
 @app.route('/logout')
 def logout():
