@@ -7,37 +7,30 @@ app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Ganti dengan secret key yang aman
 
 # MySQL Connection Configuration
-db_config = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': '',  # Replace with your password if necessary
-    'database': 'tokoku'
-}
+hostname = "vlnon.h.filess.io"
+database = "tokoku_weatherat"
+port = "3305"
+username = "tokoku_weatherat"
+password = "a076f5b8f8d9ccba80512b53010a3fe3499575c1"
 
-def get_db_connection():
-    """Connect to the database and return the connection."""
-    return mysql.connector.connect(**db_config)
+try:
+    connection = mysql.connector.connect(host=hostname, database = database, user=username, password=password, port=port)
+    if connection.is_connected():
+        db_Info = connection.get_server_info()
+        print("Connected to MariaDB Server version ", db_Info)
+        cursor = connection.cursor()
+        cursor.execute("select database();")
+        record= cursor.fetchone()
+        print("You're connected to database: ", record)
 
-def admin_required(f):
-    """Decorator to restrict access to admin users only."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            flash('Please log in first.', 'error')
-            return redirect(url_for('login'))
-        
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM users WHERE id = %s', (session['user_id'],))
-        user = cursor.fetchone()
-        conn.close()
+except Error as e:
+    print("Error while connecting to MariaDB", e)
+finally:
+    if connection.is_connected():
+        cursor.close()
+        connection.close()
+        print("MariaDB connection is closed")
 
-        if not user or user['permission'] != 50:  # Ensure only admins (permission 50) can access
-            flash('Access Denied. Admin privileges required.', 'error')
-            return redirect(url_for('login'))
-            
-        return f(*args, **kwargs)
-    return decorated_function
 
 @app.route('/')
 def home():
