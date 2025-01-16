@@ -26,17 +26,23 @@ def admin_required(f):
         if 'user_id' not in session:
             flash('Please log in first.', 'error')
             return redirect(url_for('login'))
-        
+
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute('SELECT * FROM users WHERE id = %s', (session['user_id'],))
         user = cursor.fetchone()
         conn.close()
 
-        if not user or user['permission'] != 50:  # Ensure only admins (permission 50) can access
+        # Debugging: Print to check user permission
+        if user:
+            print(f"User ID from session: {session['user_id']}")
+            print(f"Permission from database: {user['permission']}")
+
+        # Check permission (make sure it's an integer)
+        if not user or int(user['permission']) != 50:  # Ensure only admins (permission 50) can access
             flash('Access Denied. Admin privileges required.', 'error')
             return redirect(url_for('login'))
-            
+
         return f(*args, **kwargs)
     return decorated_function
 
