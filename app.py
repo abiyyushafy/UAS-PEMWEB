@@ -16,29 +16,23 @@ db_config = {
     'port': "3305"
 }
 
-def get_db_connection():
-    """Create and return a database connection"""
-    try:
-        connection = mysql.connector.connect(**db_config)
-        return connection
-    except Error as e:
-        print(f"Error connecting to MySQL: {e}")
-        return None
-
-# Test database connection at startup
 try:
-    test_connection = get_db_connection()
-    if test_connection and test_connection.is_connected():
-        db_Info = test_connection.get_server_info()
-        print("Connected to MariaDB Server version ", db_Info)
-        cursor = test_connection.cursor()
-        cursor.execute("select database();")
-        record = cursor.fetchone()
-        print("You're connected to database: ", record)
-        cursor.close()
-        test_connection.close()
+    connection= mysql.connector.connect(host=hostname, database=database, user=username, password=password, port=port)  
+    if connection.is_connected():
+    db_Info = connection.get_server_info()
+    print("Connected to MariaDB Server version ", db_Info)    
+    cursor = connection.cursor()
+    cursor.execute("select database();")
+    record = cursor.fetchone()
+    print("You're connected to database: ", record)
+
 except Error as e:
-    print("Error while connecting to MariaDB", e)
+    print ("Error while connecting to MariaDB", e)
+finally:
+    if connection.is.connected():
+    cursor.close()
+    connection.close()
+    print("MariaDB connection is closed")
 
 # Define admin_required decorator
 def admin_required(f):
