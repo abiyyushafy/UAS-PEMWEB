@@ -42,37 +42,26 @@ except Error as e:
 
 # Define admin_required decorator
 def admin_required(f):
+    """Decorator to restrict access to admin users only."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             flash('Please log in first.', 'error')
             return redirect(url_for('login'))
         
-        try:
-            conn = get_db_connection()
-            if not conn:
-                flash('Database connection error', 'error')
-                return redirect(url_for('login'))
-                
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute('SELECT * FROM users WHERE id = %s', (session['user_id'],))
-            user = cursor.fetchone()
-            cursor.close()
-            conn.close()
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute('SELECT * FROM users WHERE id = %s', (session['user_id'],))
+        user = cursor.fetchone()
+        conn.close()
 
-            if not user or user['permission'] != 50:  # Ensure only admins (permission 50) can access
-                flash('Access Denied. Admin privileges required.', 'error')
-                return redirect(url_for('login'))
-                
-            return f(*args, **kwargs)
-            
-        except Error as e:
-            print(f"Database error: {e}")
-            flash('Database error occurred', 'error')
+        if not user or user['permission'] != 50:  # Ensure only admins (permission 50) can access
+            flash('Access Denied. Admin privileges required.', 'error')
             return redirect(url_for('login'))
             
+        return f(*args, **kwargs)
     return decorated_function
-
+    
 @app.route('/')
 def home():
     return redirect(url_for('login'))
