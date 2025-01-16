@@ -60,7 +60,7 @@ def login():
         if user:
             session['user_id'] = user['id']
             flash('Login successful!', 'success')
-            return redirect(url_for('admin_dashboard.html'))
+            return redirect(url_for('admin_dashboard'))
         else:
             flash('Invalid username or password!', 'error')
 
