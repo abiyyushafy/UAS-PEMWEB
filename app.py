@@ -71,7 +71,15 @@ def index():
     products = cursor.fetchall()
     
     # Get promo data
-    cursor.execute('SELECT * FROM promos ORDER BY id DESC LIMIT 10')
+    cursor.execute('''
+        SELECT 
+            promos.name AS promo_name, 
+            promos.discount, 
+            products.name AS product_name, 
+            products.image AS product_image
+        FROM promos
+        LEFT JOIN products ON promos.product_id = products.id
+    ''')
     promos = cursor.fetchall()
     
     conn.close()
