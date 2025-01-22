@@ -37,7 +37,8 @@ db_config = {
     'host': os.getenv('db_host'),
     'user': os.getenv('username_db'),
     'password': os.getenv('password_db'),  # Replace with your password if necessary
-    'database': os.getenv('db_name')
+    'database': os.getenv('db_name'),
+    'port': os.getenv('db_port')
 }
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -485,8 +486,60 @@ def profil():
 
     return render_template('profile.html', user=user, profile_picture=profile_picture_url)
 
+# Pesan
+@app.route('/order', methods=['GET', 'POST'])
+def order():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Ambil semua produk dari database
+    cursor.execute('SELECT * FROM products')
+    products = cursor.fetchall()
+    conn.close()
 
+    # Inisialisasi cart jika belum ada
+    if 'order' not in session:
+        session['order'] = []
 
+    if request.method == 'POST':
+        action = request.form['action']
+
+        if action == 'add_to_cart':
+            product_id = request.form['product_id']
+            quantity = int(request.form['quantity'])
+
+            # Ambil informasi produk dari database berdasarkan ID
+            conn = get_db_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute('SELECT * FROM products WHERE id = %s', (product_id,))
+            product = cursor.fetchone()
+            conn.close()
+
+            # Tambahkan produk ke cart
+            if product:
+                item = {
+                    'product_id': product['id'],
+                    'name': product['name'],
+                    'price': product['price'],
+                    'quantity': quantity,
+                    'image': product['image']
+                }
+                session['order'].append(item)
+                flash(f'Added {product["name"]} to cart', 'success')
+
+        elif action == 'remove_from_cart':
+            product_id = request.form['product_id']
+            session['order'] = [item for item in session['order'] if item['product_id'] != int(product_id)]
+            flash('Item removed from cart', 'success')
+
+        elif action == 'checkout':
+            # Hitung total harga
+            total_price = sum(item['price'] * item['quantity'] for item in session['order'])
+            # Lakukan checkout dan proses pembayaran jika diperlukan (contoh hanya menampilkan total)
+            flash(f'Total price: Rp {total_price}', 'success')
+            session['order'] = []  # Kosongkan cart setelah checkout
+
+    return render_template('order.html', products=products)
 
 if __name__ == '__main__':
     app.run(debug=True)
