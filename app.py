@@ -417,7 +417,7 @@ def logout():
     flash('Anda telah logout.', 'info')
     return redirect(url_for('index'))
 
-@app.route('/profil', methods=['GET', 'POST'])
+@app.route('/profile', methods=['GET', 'POST'])
 def profil():
     if 'user_id' not in session:
         flash('Please log in first.', 'error')
