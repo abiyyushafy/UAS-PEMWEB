@@ -5,26 +5,40 @@ from functools import wraps
 import hashlib
 import os
 from werkzeug.utils import secure_filename  # Add this import
+from PIL import Image
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Ganti dengan secret key yang aman
+# Activate Environment
+load_dotenv()
 
+PROFILE_UPLOAD_FOLDER = 'static/uploads/user'
 UPLOAD_FOLDER = 'static/uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['PROFILE_UPLOAD_FOLDER'] = PROFILE_UPLOAD_FOLDER
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+if not os.path.exists(PROFILE_UPLOAD_FOLDER):
+    os.makedirs(PROFILE_UPLOAD_FOLDER)
+
+def check_resolution(image_path, min_width, min_height):
+    """Cek resolusi gambar."""
+    with Image.open(image_path) as img:
+        width, height = img.size
+        return width >= min_width and height >= min_height
+
     
 # MySQL Connection Configuration
 db_config = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': '',  # Replace with your password if necessary
-    'database': 'tokoku'
+    'host': os.getenv('db_host'),
+    'user': os.getenv('username_db'),
+    'password': os.getenv('password_db'),  # Replace with your password if necessary
+    'database': os.getenv('db_name')
 }
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -84,7 +98,6 @@ def index():
     
     conn.close()
     return render_template('index.html', products=products, total_products=total_products, promos=promos)
-
 @app.route('/products')
 def products():
     conn = get_db_connection()
@@ -403,6 +416,76 @@ def logout():
     session.clear()
     flash('Anda telah logout.', 'info')
     return redirect(url_for('index'))
+
+@app.route('/profile', methods=['GET', 'POST'])
+def profil():
+    if 'user_id' not in session:
+        flash('Please log in first.', 'error')
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute('SELECT username, email FROM users WHERE id = %s', (session['user_id'],))
+    user = cursor.fetchone()
+    conn.close()
+
+    if not user:
+        flash('User not found!', 'error')
+        return redirect(url_for('index'))
+
+    # Direktori penyimpanan untuk file
+    profile_dir = os.path.join(app.root_path, 'static/uploads/user')
+    if not os.path.exists(profile_dir):
+        os.makedirs(profile_dir)
+
+    profile_picture_path = os.path.join(profile_dir, f"{user['username']}.png")
+    default_picture_path = os.path.join(app.root_path, 'static', 'default_picture.png')
+
+    # Jika tidak ada file profil, gunakan default gambar
+    if not os.path.exists(profile_picture_path):
+        profile_picture_path = default_picture_path
+
+    if request.method == 'POST':
+        # Periksa apakah file diunggah
+        if 'profile_picture' not in request.files or request.files['profile_picture'].filename == '':
+            flash('No file uploaded.', 'error')
+            return redirect(url_for('profil'))
+
+        file = request.files['profile_picture']
+
+        # Validasi file (hanya PNG diperbolehkan)
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            temp_file_path = os.path.join(profile_dir, filename)
+            file.save(temp_file_path)
+
+            # Periksa resolusi gambar
+            if not check_resolution(temp_file_path, 300, 300):
+                os.remove(temp_file_path)
+                flash('Image resolution must be at least 300x300 pixels!', 'error')
+                return redirect(url_for('profil'))
+
+            # Hapus file profil lama jika ada
+            if os.path.exists(profile_picture_path) and profile_picture_path != default_picture_path:
+                os.remove(profile_picture_path)
+
+            # Pindahkan file ke path sesuai username
+            new_profile_picture_path = os.path.join(profile_dir, f"{user['username']}.png")
+            os.rename(temp_file_path, new_profile_picture_path)
+            flash('Profile picture updated successfully!', 'success')
+        else:
+            flash('Invalid file type! Only PNG files are allowed.', 'error')
+
+    # URL untuk gambar profil (frontend)
+    profile_picture_url = (
+        url_for('static', filename=f"uploads/user/{user['username']}.png")
+        if os.path.exists(os.path.join(profile_dir, f"{user['username']}.png"))
+        else url_for('static', filename='default_picture.png')
+    )
+
+    return render_template('profile.html', user=user, profile_picture=profile_picture_url)
+
+
 
 
 if __name__ == '__main__':
