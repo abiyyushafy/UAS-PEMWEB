@@ -4,36 +4,16 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 from functools import wraps
 import hashlib
 import os
-from werkzeug.utils import secure_filename  # Add this import
-from PIL import Image
-from dotenv import load_dotenv
+import time
+import urllib.parse
+from werkzeug.utils import secure_filename
 from io import BytesIO
+from PIL import Image
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'  # Ganti dengan secret key yang aman
-# Activate Environment
-load_dotenv()
+app.secret_key = 'your_secret_key_here'
 
-PROFILE_UPLOAD_FOLDER = 'static/uploads/user'
-UPLOAD_FOLDER = 'static/uploads'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['PROFILE_UPLOAD_FOLDER'] = PROFILE_UPLOAD_FOLDER
-
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-if not os.path.exists(PROFILE_UPLOAD_FOLDER):
-    os.makedirs(PROFILE_UPLOAD_FOLDER)
-
-def check_resolution(image_path, min_width, min_height):
-    """Cek resolusi gambar."""
-    with Image.open(image_path) as img:
-        width, height = img.size
-        return width >= min_width and height >= min_height
-
-    
-# MySQL Connection Configuration
+# Database Configuration
 db_config = {
     'host': '6-1sh.h.filess.io',
     'database': 'tokoku_digluckygo',
@@ -41,12 +21,30 @@ db_config = {
     'password': '5f59f8e9ac5170f2b1d9ec42397133766b7eb894',
     'port': '3307'
 }
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# File Upload Configuration
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+UPLOAD_FOLDER = 'static/uploads'
+PROFILE_UPLOAD_FOLDER = 'static/uploads/user'
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['PROFILE_UPLOAD_FOLDER'] = PROFILE_UPLOAD_FOLDER
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(PROFILE_UPLOAD_FOLDER, exist_ok=True)
 
 def get_db_connection():
     """Connect to the database and return the connection."""
     return mysql.connector.connect(**db_config)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def check_resolution(image_path, min_width, min_height):
+    """Check image resolution."""
+    with Image.open(image_path) as img:
+        width, height = img.size
+        return width >= min_width and height >= min_height
 
 def admin_required(f):
     """Decorator to restrict access to admin users only."""
@@ -62,7 +60,7 @@ def admin_required(f):
         user = cursor.fetchone()
         conn.close()
 
-        if not user or user['permission'] != 50:  # Ensure only admins (permission 50) can access
+        if not user or user['permission'] != 50:
             flash('Access Denied. Admin privileges required.', 'error')
             return redirect(url_for('login'))
             
@@ -78,24 +76,29 @@ def index():
     cursor.execute('SELECT COUNT(*) as total FROM products')
     total_products = cursor.fetchone()['total']
     
-    # Get latest 10 products
-    # Convert price to float to ensure proper formatting
+    # Get latest 10 products with price cast to float
     cursor.execute('''
         SELECT 
-            id, name, CAST(price AS FLOAT) as price, description, category, image, created_at 
+            id, 
+            name, 
+            CAST(REPLACE(REPLACE(price, 'Rp', ''), '.', '') AS FLOAT) as price, 
+            description, 
+            category, 
+            image, 
+            created_at 
         FROM products 
         ORDER BY created_at DESC 
         LIMIT 10
     ''')
     products = cursor.fetchall()
     
-    # Get promo data
+    # Get promo data with fallback for missing product images
     cursor.execute('''
         SELECT 
             promos.name AS promo_name, 
             promos.discount, 
             products.name AS product_name, 
-            products.image AS product_image
+            COALESCE(products.image, 'default_promo.png') AS product_image
         FROM promos
         LEFT JOIN products ON promos.product_id = products.id
     ''')
@@ -103,6 +106,7 @@ def index():
     
     conn.close()
     return render_template('index.html', products=products, total_products=total_products, promos=promos)
+
 @app.route('/products')
 def products():
     conn = get_db_connection()
@@ -118,8 +122,19 @@ def products():
     
     per_page = 12  # Products per page
     
-    # Build the base query
-    query = 'SELECT * FROM products WHERE 1=1'
+    # Base query with price cast to float
+    query = '''
+        SELECT 
+            id, 
+            name, 
+            CAST(REPLACE(REPLACE(price, 'Rp', ''), '.', '') AS FLOAT) as price, 
+            description, 
+            category, 
+            image, 
+            created_at 
+        FROM products 
+        WHERE 1=1
+    '''
     params = []
     
     # Add search condition
@@ -166,96 +181,79 @@ def products():
     cursor.execute(query, params)
     products = cursor.fetchall()
     
+    # Calculate page range
+    page_range_start = max(1, page - 2)
+    page_range_end = min(total_pages + 1, page + 3)
+    
     conn.close()
     
     return render_template('products.html',
                          products=products,
                          page=page,
                          total_pages=total_pages,
-                         total_products=total_products)
-    
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = hashlib.md5(request.form['password'].encode()).hexdigest()
-
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM users WHERE username = %s AND password = %s', 
-                       (username, password))
-        user = cursor.fetchone()
-        conn.close()
-
-        if user:
-            session['user_id'] = user['id']
-            session['username'] = user['username']
-            session['permission'] = user['permission']  # Save permission level in session
-            flash('Login berhasil!', 'success')
-            return redirect(url_for('index'))
-        else:
-            flash('Username atau password salah!', 'danger')
-
-    return render_template('login.html')
-
-
-
-@app.route('/loginadm', methods=['GET', 'POST'])
-def loginadm():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = hashlib.md5(request.form['password'].encode()).hexdigest()
-
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM users WHERE username = %s AND password = %s', 
-                       (username, password))
-        user = cursor.fetchone()
-        conn.close()
-
-        if user:
-            session['user_id'] = user['id']
-            flash('Login successful!', 'success')
-            return redirect(url_for('admin_dashboard'))
-        else:
-            flash('Invalid username or password!', 'error')
-
-    return render_template('loginadmin.html')
+                         total_products=total_products,
+                         page_range_start=page_range_start,
+                         page_range_end=page_range_end)
 @app.route('/admin', methods=['GET', 'POST'])
 @admin_required
 def admin_dashboard():
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-
+        cursor.execute('SELECT username FROM users WHERE id = %s', (session['user_id'],))
+        user = cursor.fetchone()
+        cursor.execute('''
+            SELECT 
+                id, 
+                name, 
+                CAST(REPLACE(REPLACE(price, 'Rp', ''), '.', '') AS FLOAT) as price, 
+                description, 
+                category, 
+                image 
+            FROM products
+        ''')
+        products = cursor.fetchall()
+        cursor.execute('''
+            SELECT promos.id, promos.name AS promo_name, promos.discount, 
+                   products.name AS product_name, products.image AS product_image
+            FROM promos
+            LEFT JOIN products ON promos.product_id = products.id
+        ''')
+        promos = cursor.fetchall()
         if request.method == 'POST':
             action = request.form['action']
-
             if action == 'add_product':
                 name = request.form['product_name']
                 price = request.form['product_price'].replace('Rp', '').replace(',', '').replace('.', '')[:-3]
                 description = request.form['product_description']
                 category = request.form['product_category']
-
+                
+                # Handle image upload
                 image_file = request.files['product_image']
                 if image_file and allowed_file(image_file.filename):
-                    image_bytes = image_file.read()
-                    cursor.execute('''
-                        INSERT INTO products (name, price, description, category, image) 
-                        VALUES (%s, %s, %s, %s, %s)
-                    ''', (name, price, description, category, image_bytes))
-                    conn.commit()
-                    flash('Product added successfully!', 'success')
+                    filename = f"{int(time.time())}_{secure_filename(image_file.filename)}"
+                    image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    image_file.save(image_path)
+                    
+                    # Check image resolution
+                    if check_resolution(image_path, 400, 300):
+                        image_url = f"/uploads/{filename}"
+                        cursor.execute('''
+                            INSERT INTO products (name, price, description, category, image) 
+                            VALUES (%s, %s, %s, %s, %s)
+                        ''', (name, price, description, category, image_url))
+                        conn.commit()
+                        flash('Product added successfully!', 'success')
+                    else:
+                        os.remove(image_path)
+                        flash('Image dimensions must be at least 400x300 pixels.', 'error')
                 else:
                     flash('No file uploaded or invalid file type.', 'error')
-
         return render_template('admin_dashboard.html', user=user, products=products, promos=promos)
-
     except Exception as e:
         flash('An error occurred while processing your request.', 'error')
         app.logger.error(f'Error in admin_dashboard: {e}')
         return redirect(url_for('login'))
-
     finally:
         if 'conn' in locals() and conn:
             conn.close()
@@ -367,6 +365,30 @@ def register():
     # If GET request, just show the registration form
     return render_template('register.html')
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = hashlib.md5(request.form['password'].encode()).hexdigest()
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute('SELECT * FROM users WHERE username = %s AND password = %s', 
+                       (username, password))
+        user = cursor.fetchone()
+        conn.close()
+
+        if user:
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session['permission'] = user['permission']  # Save permission level in session
+            flash('Login berhasil!', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Username atau password salah!', 'danger')
+
+    return render_template('login.html')
+
 @app.route('/logout')
 def logout():
     session.clear()
@@ -389,57 +411,13 @@ def profil():
         flash('User not found!', 'error')
         return redirect(url_for('index'))
 
-    # Direktori penyimpanan untuk file
-    profile_dir = os.path.join(app.root_path, 'static/uploads/user')
-    if not os.path.exists(profile_dir):
-        os.makedirs(profile_dir)
+    # Use the predefined PROFILE_UPLOAD_FOLDER from your configuration
+    default_picture = 'static/default_picture.png'
+    profile_picture_path = os.path.join(app.config['PROFILE_UPLOAD_FOLDER'], f"{user['username']}.png")
 
-    profile_picture_path = os.path.join(profile_dir, f"{user['username']}.png")
-    default_picture_path = os.path.join(app.root_path, 'static', 'default_picture.png')
-
-    # Jika tidak ada file profil, gunakan default gambar
-    if not os.path.exists(profile_picture_path):
-        profile_picture_path = default_picture_path
-
-    if request.method == 'POST':
-        # Periksa apakah file diunggah
-        if 'profile_picture' not in request.files or request.files['profile_picture'].filename == '':
-            flash('No file uploaded.', 'error')
-            return redirect(url_for('profil'))
-
-        file = request.files['profile_picture']
-
-        # Validasi file (hanya PNG diperbolehkan)
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            temp_file_path = os.path.join(profile_dir, filename)
-            file.save(temp_file_path)
-
-            # Periksa resolusi gambar
-            if not check_resolution(temp_file_path, 300, 300):
-                os.remove(temp_file_path)
-                flash('Image resolution must be at least 300x300 pixels!', 'error')
-                return redirect(url_for('profil'))
-
-            # Hapus file profil lama jika ada
-            if os.path.exists(profile_picture_path) and profile_picture_path != default_picture_path:
-                os.remove(profile_picture_path)
-
-            # Pindahkan file ke path sesuai username
-            new_profile_picture_path = os.path.join(profile_dir, f"{user['username']}.png")
-            os.rename(temp_file_path, new_profile_picture_path)
-            flash('Profile picture updated successfully!', 'success')
-        else:
-            flash('Invalid file type! Only PNG files are allowed.', 'error')
-
-    # URL untuk gambar profil (frontend)
-    profile_picture_url = (
-        url_for('static', filename=f"uploads/user/{user['username']}.png")
-        if os.path.exists(os.path.join(profile_dir, f"{user['username']}.png"))
-        else url_for('static', filename='default_picture.png')
-    )
-
-    return render_template('profile.html', user=user, profile_picture=profile_picture_url)
+    return render_template('profile.html', 
+                           user=user, 
+                           profile_picture=default_picture)
 
 # Pesan
 @app.route('/order', methods=['GET', 'POST'])
