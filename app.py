@@ -30,8 +30,6 @@ PROFILE_UPLOAD_FOLDER = 'static/uploads/user'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['PROFILE_UPLOAD_FOLDER'] = PROFILE_UPLOAD_FOLDER
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PROFILE_UPLOAD_FOLDER, exist_ok=True)
 
 def get_db_connection():
     """Connect to the database and return the connection."""
