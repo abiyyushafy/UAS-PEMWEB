@@ -7,6 +7,7 @@ import os
 from werkzeug.utils import secure_filename  # Add this import
 from PIL import Image
 from dotenv import load_dotenv
+from io import BytesIO
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Ganti dengan secret key yang aman
@@ -220,93 +221,44 @@ def loginadm():
             flash('Invalid username or password!', 'error')
 
     return render_template('loginadmin.html')
-
 @app.route('/admin', methods=['GET', 'POST'])
 @admin_required
 def admin_dashboard():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
 
-    # Fetch user data
-    cursor.execute('SELECT username FROM users WHERE id = %s', (session['user_id'],))
-    user = cursor.fetchone()
+        if request.method == 'POST':
+            action = request.form['action']
 
-    # Fetch existing products
-    cursor.execute('SELECT * FROM products')
-    products = cursor.fetchall()
+            if action == 'add_product':
+                name = request.form['product_name']
+                price = request.form['product_price'].replace('Rp', '').replace(',', '').replace('.', '')[:-3]
+                description = request.form['product_description']
+                category = request.form['product_category']
 
-    # Fetch promos joined with product names and images
-    cursor.execute('''
-        SELECT promos.id, promos.name AS promo_name, promos.discount, 
-               products.name AS product_name, products.image AS product_image
-        FROM promos
-        LEFT JOIN products ON promos.product_id = products.id
-    ''')
-    promos = cursor.fetchall()
-
-    if request.method == 'POST':
-        action = request.form['action']
-
-        if action == 'add_product':
-            name = request.form['product_name']
-            price = request.form['product_price'].replace('Rp', '').replace(',', '').replace('.', '')[:-3]
-            description = request.form['product_description']
-            category = request.form['product_category']
-            
-            # Handle image upload
-            if 'product_image' in request.files:
-                file = request.files['product_image']
-                if file and allowed_file(file.filename):
-                    filename = secure_filename(file.filename)
-                    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-                    
+                image_file = request.files['product_image']
+                if image_file and allowed_file(image_file.filename):
+                    image_bytes = image_file.read()
                     cursor.execute('''
                         INSERT INTO products (name, price, description, category, image) 
                         VALUES (%s, %s, %s, %s, %s)
-                    ''', (name, price, description, category, filename))
+                    ''', (name, price, description, category, image_bytes))
                     conn.commit()
                     flash('Product added successfully!', 'success')
                 else:
-                    flash('Invalid file type!', 'error')
-            else:
-                flash('No file uploaded!', 'error')
+                    flash('No file uploaded or invalid file type.', 'error')
 
-        elif action == 'delete_product':
-            product_id = request.form['product_id']
-            
-            # Get the image filename before deleting the product
-            cursor.execute('SELECT image FROM products WHERE id = %s', (product_id,))
-            product = cursor.fetchone()
-            if product and product['image']:
-                # Delete the image file
-                image_path = os.path.join(app.config['UPLOAD_FOLDER'], product['image'])
-                if os.path.exists(image_path):
-                    os.remove(image_path)
-            
-            cursor.execute('DELETE FROM products WHERE id = %s', (product_id,))
-            conn.commit()
-            flash('Product deleted successfully!', 'success')
+        return render_template('admin_dashboard.html', user=user, products=products, promos=promos)
 
-        elif action == 'add_promo':
-            name = request.form['promo_name']
-            discount = request.form['promo_discount']
-            product_id = request.form['promo_product_id']  # Get selected product ID
-            cursor.execute(
-                'INSERT INTO promos (name, discount, product_id) VALUES (%s, %s, %s)', 
-                (name, discount, product_id)
-            )
-            conn.commit()
-            flash('Promo added successfully!', 'success')
+    except Exception as e:
+        flash('An error occurred while processing your request.', 'error')
+        app.logger.error(f'Error in admin_dashboard: {e}')
+        return redirect(url_for('login'))
 
-        elif action == 'delete_promo':
-            promo_id = request.form['promo_id']
-            cursor.execute('DELETE FROM promos WHERE id = %s', (promo_id,))
-            conn.commit()
-            flash('Promo deleted successfully!', 'success')
-
-    conn.close()
-    return render_template('admin_dashboard.html', user=user, products=products, promos=promos)
-
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
 
 @app.route('/admin/users', methods=['GET', 'POST'])
 @admin_required
