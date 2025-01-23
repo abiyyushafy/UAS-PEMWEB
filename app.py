@@ -491,4 +491,9 @@ def order():
     return render_template('order.html', products=products)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    try:
+        app.run(debug=True)
+    except ValueError:
+        app.run(debug=True)
+    except Exception:
+        app.run(debug=True)
