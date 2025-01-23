@@ -416,7 +416,7 @@ def logout():
 @app.route('/profile', methods=['GET', 'POST'])
 def profil():
     if 'user_id' not in session:
-        flash('Please log in first.', 'error')Add Promo
+        flash('Please log in first.', 'error')
         return redirect(url_for('login'))
     
     conn = get_db_connection()
